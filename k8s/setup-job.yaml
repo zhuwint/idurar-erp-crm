@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: idurar-setup
+  namespace: idurar-erp-crm
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-mongodb
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nslookup mongodb.idurar-erp-crm.svc.cluster.local; do
+                echo "Waiting for MongoDB Service..."
+                sleep 3
+              done
+      containers:
+        - name: setup
+          image: idurar-erp-crm-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "src/setup/setup.js"]
+          envFrom:
+            - configMapRef:
+                name: idurar-backend-config
+            - secretRef:
+                name: idurar-backend-secret

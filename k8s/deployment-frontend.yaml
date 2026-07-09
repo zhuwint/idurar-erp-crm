@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idurar-frontend
+  namespace: idurar-erp-crm
+  labels:
+    app: idurar-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: idurar-frontend
+  template:
+    metadata:
+      labels:
+        app: idurar-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: idurar-erp-crm-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idurar-frontend
+  namespace: idurar-erp-crm
+  labels:
+    app: idurar-frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: idurar-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP

@@ -1,0 +1,57 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: idurar-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: idurar
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - idurar-net
+
+  backend:
+    image: idurar-erp-crm-backend:latest
+    container_name: idurar-backend
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      NODE_ENV: production
+      PORT: "8888"
+      DATABASE: mongodb://mongodb:27017/idurar
+      JWT_SECRET: change-me-to-a-random-secret-string
+      OPENSSL_CONF: /dev/null
+      PUBLIC_SERVER_FILE: http://localhost:8888/
+    networks:
+      - idurar-net
+
+  setup:
+    image: idurar-erp-crm-backend:latest
+    container_name: idurar-setup
+    depends_on:
+      - mongodb
+    environment:
+      NODE_ENV: production
+      DATABASE: mongodb://mongodb:27017/idurar
+      JWT_SECRET: change-me-to-a-random-secret-string
+    command: ["node", "src/setup/setup.js"]
+    networks:
+      - idurar-net
+
+  frontend:
+    image: idurar-erp-crm-frontend:latest
+    container_name: idurar-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - idurar-net
+
+volumes:
+  mongo-data:
+
+networks:
+  idurar-net:

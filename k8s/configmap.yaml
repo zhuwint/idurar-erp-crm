@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idurar-backend-config
+  namespace: idurar-erp-crm
+data:
+  NODE_ENV: "production"
+  PORT: "8888"
+  PUBLIC_SERVER_FILE: "http://localhost:8888/"
+  OPENSSL_CONF: "/dev/null"

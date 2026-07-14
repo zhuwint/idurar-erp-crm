@@ -1,0 +1,21 @@
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: idurar
+
+  app:
+    image: iduraracr.azurecr.io/idurar-app:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - mongodb
+    environment:
+      NODE_ENV: production
+      PORT: "8888"
+      DATABASE: mongodb://mongodb:27017/idurar
+      JWT_SECRET: ${JWT_SECRET}
+      OPENSSL_CONF: /dev/null
+      PUBLIC_SERVER_FILE: http://localhost:8888/

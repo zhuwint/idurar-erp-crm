@@ -28,7 +28,7 @@ WORKDIR /app/backend
 
 COPY backend/package*.json ./
 
-RUN npm ci --omit=dev --registry=https://registry.npmmirror.com
+RUN npm install --omit=dev --registry=https://registry.npmmirror.com --ignore-scripts
 
 COPY backend/ ./
 

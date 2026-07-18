@@ -7,7 +7,7 @@ Azure App Service (Linux B1)
 └── idurar-app 容器     nginx + Node.js (一体化镜像, 端口 80)
 
 Azure Cosmos DB for MongoDB vCore (M10)
-└── idurar-mongo-zwt    MongoDB 7.0, 32GB, eastasia, 公网访问
+└── idurar-mongo-1    MongoDB 7.0, 32GB, eastasia, 公网访问
 ```
 
 不使用 docker-compose，MongoDB 以 Cosmos DB 托管服务方式部署，应用以单容器方式部署到 App Service，两者独立分开。
@@ -19,9 +19,9 @@ Azure Cosmos DB for MongoDB vCore (M10)
 | 资源 | 名称 | SKU | 位置 |
 |------|------|-----|------|
 | 资源组 | `idurar-erp-crm-rg` | — | eastasia |
-| App Service Plan | `ASP-idurarerpcrmrg-962e` | B1 (1核/1.75GB) | eastasia |
+| App Service Plan | `idurar-asp` | B1 (1核/1.75GB) | eastasia |
 | Web App | `idurar-erp-crm` | — | eastasia |
-| Cosmos DB | `idurar-mongo-zwt` | M10 | eastasia |
+| Cosmos DB | `idurar-mongo-1` | M10 | eastasia |
 | ACR | `myimageszwt` | Basic | eastasia |
 
 ---
@@ -41,7 +41,7 @@ $mongoUser = "iduraradmin"
 
 # 创建集群 (M10, 单节点, 无HA, 7.0)
 az cosmosdb mongocluster create \
-  --cluster-name idurar-mongo-zwt \
+  --cluster-name idurar-mongo-1 \
   --resource-group idurar-erp-crm-rg \
   --location eastasia \
   --administrator-login $mongoUser \
@@ -54,7 +54,7 @@ az cosmosdb mongocluster create \
 
 # 开放 Azure 服务访问 (0.0.0.0 表示允许所有 Azure 内部流量)
 az cosmosdb mongocluster firewall rule create \
-  --cluster-name idurar-mongo-zwt \
+  --cluster-name idurar-mongo-1 \
   --resource-group idurar-erp-crm-rg \
   --rule-name AllowAzureServices \
   --start-ip-address 0.0.0.0 \
@@ -74,6 +74,10 @@ docker build -t myimageszwt.azurecr.io/idurar-app:latest -f Dockerfile .
 
 # 推送
 docker push myimageszwt.azurecr.io/idurar-app:latest
+```
+
+> **Windows 用户注意**：构建前确保 `docker-entrypoint.sh` 为 LF 行尾，否则容器会报 `exec /docker-entrypoint.sh: no such file or directory`。建议在 `.gitattributes` 中添加 `*.sh text eol=lf`。
+
 ```
 
 ### 3. 创建 App Service Plan
@@ -115,28 +119,13 @@ az webapp create \
 $acrPass = az acr credential show --name myimageszwt --query "passwords[0].value" -o tsv
 
 # 获取 Cosmos 连接地址
-$connStr = az cosmosdb mongocluster show --cluster-name idurar-mongo-zwt \
+$connStr = az cosmosdb mongocluster show --cluster-name idurar-mongo-1 \
   --resource-group idurar-erp-crm-rg --query "properties.connectionString" -o tsv
-# 输出类似: mongodb+srv://<user>:<password>@idurar-mongo-zwt.mongocluster.cosmos.azure.com/...
+# 输出类似: mongodb+srv://<user>:<password>@idurar-mongo-1.mongocluster.cosmos.azure.com/...
 
 # 组装完整连接字符串 (密码需 URL 编码)
 $encPass = [uri]::EscapeDataString($mongoPass)
-$DATABASE = "mongodb+srv://iduraradmin:$encPass@idurar-mongo-zwt.mongocluster.cosmos.azure.com/idurar?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
-
-# 生成 JWT_SECRET
-$JWT_SECRET = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
-
-# 获取 ACR 密码
-$acrPass = az acr credential show --name myimageszwt --query "passwords[0].value" -o tsv
-
-# 获取 Cosmos 连接地址
-$connStr = az cosmosdb mongocluster show --cluster-name idurar-mongo-zwt \
-  --resource-group idurar-erp-crm-rg --query "properties.connectionString" -o tsv
-# 输出类似: mongodb+srv://<user>:<password>@idurar-mongo-zwt.mongocluster.cosmos.azure.com/...
-
-# 组装完整连接字符串 (密码需 URL 编码)
-$encPass = [uri]::EscapeDataString($mongoPass)
-$DATABASE = "mongodb+srv://iduraradmin:$encPass@idurar-mongo-zwt.mongocluster.cosmos.azure.com/idurar?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+$DATABASE = "mongodb+srv://iduraradmin:$encPass@idurar-mongo-1.mongocluster.cosmos.azure.com/idurar?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
 # 生成 JWT_SECRET
 $JWT_SECRET = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
@@ -144,29 +133,27 @@ $JWT_SECRET = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
 
 ### 5. 配置环境变量
 
-> 因连接字符串含 `&` 字符，通过 JSON 文件注入避免 shell 截断：
-
 ```bash
-# 创建应用设置 JSON 文件
-$settings = @(
-  @{name="DOCKER_REGISTRY_SERVER_URL";      value="https://myimageszwt.azurecr.io"}
-  @{name="DOCKER_REGISTRY_SERVER_USERNAME"; value="myimageszwt"}
-  @{name="DOCKER_REGISTRY_SERVER_PASSWORD"; value=$acrPass}
-  @{name="WEBSITES_PORT";                   value="80"}
-  @{name="NODE_ENV";                        value="production"}
-  @{name="PORT";                            value="8888"}
-  @{name="DATABASE";                        value=$DATABASE}
-  @{name="JWT_SECRET";                      value=$JWT_SECRET}
-  @{name="OPENSSL_CONF";                    value="/dev/null"}
-  @{name="PUBLIC_SERVER_FILE";              value="https://idurar-erp-crm.azurewebsites.net/"}
-)
-ConvertTo-Json $settings | Set-Content -Path idurar-appsettings.json
-
-# 应用设置
+# 逐条设置（避免 @ 文件引用在 Windows 上不生效）
 az webapp config appsettings set \
   --resource-group idurar-erp-crm-rg \
   --name idurar-erp-crm \
-  --settings "@idurar-appsettings.json"
+  --settings \
+    DOCKER_REGISTRY_SERVER_URL="https://myimageszwt.azurecr.io" \
+    DOCKER_REGISTRY_SERVER_USERNAME="myimageszwt" \
+    DOCKER_REGISTRY_SERVER_PASSWORD="$acrPass" \
+    WEBSITES_PORT="80" \
+    NODE_ENV="production" \
+    PORT="8888" \
+    JWT_SECRET="$JWT_SECRET" \
+    OPENSSL_CONF="/dev/null" \
+    PUBLIC_SERVER_FILE="https://idurar-erp-crm.azurewebsites.net/"
+
+# DATABASE 含 & 字符，单独设置避免 shell 截断
+az webapp config appsettings set \
+  --resource-group idurar-erp-crm-rg \
+  --name idurar-erp-crm \
+  --settings DATABASE="$DATABASE"
 
 # 重启生效
 az webapp restart --resource-group idurar-erp-crm-rg --name idurar-erp-crm
@@ -255,7 +242,7 @@ curl -X POST https://idurar-erp-crm.azurewebsites.net/api/login \
 
 > **获取 ACR 密码**：Azure 面板 → **Container Registries** → 右键 `myimageszwt` → **View Properties** 或 Portal 中 Access Keys。
 >
-> **获取连接字符串**：Azure 面板 → Cosmos DB 中右键 `idurar-mongo-zwt` → 属性查看，或 Azure Portal 中复制后填入。
+> **获取连接字符串**：Azure 面板 → Cosmos DB 中右键 `idurar-mongo-1` → 属性查看，或 Azure Portal 中复制后填入。
 
 ### 5. 部署镜像
 
@@ -350,6 +337,7 @@ az group delete --name idurar-erp-crm-rg --yes --no-wait
 
 ## 注意事项
 
+- **Windows 用户必须配置 `.gitattributes`**：添加 `*.sh text eol=lf`，防止 `docker-entrypoint.sh` 被 Git 检出为 CRLF 行尾，导致容器报 `exec /docker-entrypoint.sh: no such file or directory`。
 - Cosmos DB M10 为最低付费规格，按量计费。如需降低成本可换用 **RU-based serverless**（但 mongoose 兼容性较差）或 ACI 自建 MongoDB。
 - 数据库初始化是幂等的（setup.js 已有 admin 时报错跳过），重启不会重复创建。
 - 当前无数据持久化挂载，重新部署镜像**不会丢失数据库**（数据在 Cosmos DB 托管存储中）。
